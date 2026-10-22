@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Buscar app</title>
+<!-- SDK oficial de Telegram para Mini Apps: tema, vibración y regresar al bot -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* Colores del tema de Telegram de cada cliente; los valores fijos son el respaldo fuera de Telegram */
+  :root{
+    --fondo: var(--tg-theme-bg-color, #ffffff);
+    --fondo-2: var(--tg-theme-secondary-bg-color, #f1f3f6);
+    --texto: var(--tg-theme-text-color, #16202a);
+    --tenue: var(--tg-theme-hint-color, #7b8794);
+    --acento: var(--tg-theme-button-color, #2481cc);
+    --acento-texto: var(--tg-theme-button-text-color, #ffffff);
+    --tarjeta: var(--tg-theme-section-bg-color, var(--fondo));
+    --separador: var(--tg-theme-section-separator-color, rgba(127,127,127,.18));
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not(.tg){ --fondo:#17212b; --fondo-2:#0e1621; --texto:#e8edf2; --tenue:#7f91a4; --tarjeta:#1e2c3a; }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; background:var(--fondo-2); color:var(--texto);
+    font:15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif}
+  .cabeza{position:sticky; top:0; z-index:5; background:var(--fondo-2); padding:12px 16px 10px}
+  .pais{display:flex; align-items:center; gap:8px; font-weight:600; font-size:17px; margin-bottom:10px}
+  .pais small{font-weight:400; color:var(--tenue); font-size:13px; margin-left:auto}
+  .buscar{position:relative}
+  .buscar input{
+    width:100%; border:0; outline:0; border-radius:12px; padding:11px 38px 11px 40px;
+    background:var(--tarjeta); color:var(--texto); font-size:16px; box-shadow:0 0 0 1px var(--separador);
+  }
+  .buscar input:focus{box-shadow:0 0 0 2px var(--acento)}
+  .buscar .lupa{position:absolute; left:13px; top:50%; transform:translateY(-50%); color:var(--tenue); pointer-events:none}
+  .buscar button{position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:none;
+    color:var(--tenue); font-size:18px; width:30px; height:30px; display:none; cursor:pointer}
+  .buscar.con-texto button{display:block}
+  h2{font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--tenue);
+    margin:14px 16px 8px}
+  .rejilla{display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:10px; padding:0 16px}
+  .app{
+    display:flex; flex-direction:column; align-items:center; gap:8px; padding:14px 6px 12px;
+    background:var(--tarjeta); border-radius:16px; border:0; color:var(--texto); cursor:pointer;
+    font:inherit; text-align:center; transition:transform .12s ease, box-shadow .12s ease;
+    box-shadow:0 0 0 1px var(--separador);
+  }
+  .app:active{transform:scale(.95)}
+  @media (hover:hover){ .app:hover{box-shadow:0 0 0 2px var(--acento)} }
+  .logo{width:48px; height:48px; border-radius:12px; display:grid; place-items:center; font-size:30px;
+    background:var(--fondo-2); overflow:hidden; position:relative}
+  .logo img{width:100%; height:100%; object-fit:contain; background:#fff; padding:6px; border-radius:12px}
+  .nombre{font-size:12.5px; font-weight:500; line-height:1.2; max-width:100%; overflow:hidden;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word}
+  .vacio{text-align:center; color:var(--tenue); padding:48px 24px}
+  .vacio b{display:block; font-size:34px; margin-bottom:6px}
+  .pie{text-align:center; color:var(--tenue); font-size:12px; padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+  .aviso{margin:24px 16px; padding:16px; border-radius:14px; background:var(--tarjeta); text-align:center}
+</style>
+</head>
+<body>
+<div class="cabeza">
+  <div class="pais"><span id="bandera">🌎</span><span id="pais">Apps disponibles</span><small id="cuenta"></small></div>
+  <div class="buscar" id="caja">
+    <span class="lupa">🔎</span>
+    <input id="q" type="search" inputmode="search" autocomplete="off" placeholder="Buscar app…" aria-label="Buscar app">
+    <button id="limpiar" type="button" aria-label="Borrar búsqueda">✕</button>
+  </div>
+</div>
+<main id="lista"></main>
+<div class="pie">Toca una app para ver sus operadores · el código solo se cobra si llega</div>
+
+<script>
+(function(){
+  "use strict";
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    document.documentElement.classList.add("tg");
+    tg.ready(); tg.expand();
+    try { tg.setHeaderColor("secondary_bg_color"); tg.setBackgroundColor("secondary_bg_color"); } catch (e) {}
+  }
+
+  var params = new URLSearchParams(location.search);
+  var bot = params.get("b") || "";
+  var pais = params.get("p") || "any";
+  var POPULARES = 12;          // las primeras de la lista (el bot ya las manda en orden: populares y con más stock)
+  var lista = document.getElementById("lista");
+
+  function bandera(iso){
+    iso = (iso || "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(iso)) return "🌎";
+    return String.fromCodePoint(0x1F1E6 + iso.charCodeAt(0) - 65, 0x1F1E6 + iso.charCodeAt(1) - 65);
+  }
+  document.getElementById("bandera").textContent = bandera(params.get("i"));
+  document.getElementById("pais").textContent = params.get("n") || "Apps disponibles";
+
+  function aviso(texto){ lista.innerHTML = '<div class="aviso">' + texto + "</div>"; }
+
+  // Las apps llegan comprimidas en ?s= (deflate + base64url) para que quepan en el enlace del botón
+  async function leerApps(){
+    var s = params.get("s");
+    if (!s) return [];
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    var bytes = Uint8Array.from(atob(s), function(c){ return c.charCodeAt(0); });
+    var flujo = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    var texto = await new Response(flujo).text();
+    return texto ? texto.split(",") : [];
+  }
+
+  // Nombre, emoji y dominio del logo de cada app (lo genera HERRAMIENTAS/generar_buscador.py)
+  async function leerFichas(){
+    try { var r = await fetch("apps.json", {cache: "force-cache"}); return r.ok ? await r.json() : {}; }
+    catch (e) { return {}; }
+  }
+
+  function ficha(fichas, codigo){
+    var f = fichas[codigo] || [];
+    return {
+      codigo: codigo,
+      emoji: f[0] || "📱",
+      nombre: f[1] || (codigo.charAt(0).toUpperCase() + codigo.slice(1)),
+      dominio: f[2] || (codigo.replace(/[^a-z0-9-]/g, "") + ".com")
+    };
+  }
+
+  function normalizar(t){ return (t || "").toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""); }
+
+  function tarjeta(app){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "app";
+    var logo = document.createElement("span"); logo.className = "logo"; logo.textContent = app.emoji;
+    var img = new Image();
+    img.alt = ""; img.loading = "lazy"; img.decoding = "async";
+    img.src = "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(app.dominio) + "&sz=128";
+    // Google devuelve un globo de 16 px cuando no tiene logo: en ese caso se queda el emoji
+    img.onload = function(){ if (img.naturalWidth >= 32) { logo.textContent = ""; logo.appendChild(img); } };
+    var nombre = document.createElement("span"); nombre.className = "nombre"; nombre.textContent = app.nombre;
+    b.appendChild(logo); b.appendChild(nombre);
+    b.addEventListener("click", function(){ elegir(app); });
+    return b;
+  }
+
+  function elegir(app){
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    // De regreso al bot con /start a_<país>_<app>: el bot abre los operadores de esa app
+    var enlace = "https://t.me/" + bot + "?start=" + encodeURIComponent("a_" + pais + "_" + app.codigo);
+    if (tg && bot) { tg.openTelegramLink(enlace); setTimeout(function(){ tg.close(); }, 150); }
+    else if (bot) { location.href = enlace; }
+  }
+
+  function seccion(titulo, apps){
+    if (!apps.length) return;
+    var h = document.createElement("h2"); h.textContent = titulo;
+    var r = document.createElement("div"); r.className = "rejilla";
+    apps.forEach(function(a){ r.appendChild(tarjeta(a)); });
+    lista.appendChild(h); lista.appendChild(r);
+  }
+
+  function pintar(apps, q){
+    lista.innerHTML = "";
+    var n = normalizar(q);
+    if (n) {
+      var hallados = apps.filter(function(a){ return normalizar(a.nombre).indexOf(n) >= 0 || a.codigo.indexOf(n) >= 0; })
+        .sort(function(a, b){ return (normalizar(a.nombre).indexOf(n) !== 0) - (normalizar(b.nombre).indexOf(n) !== 0); });
+      if (!hallados.length) { lista.innerHTML = '<div class="vacio"><b>😕</b>Ninguna app disponible coincide con «' +
+        q.replace(/[<>&]/g, "") + "»</div>"; return; }
+      seccion(hallados.length + " resultado" + (hallados.length === 1 ? "" : "s"), hallados);
+      return;
+    }
+    seccion("Populares", apps.slice(0, POPULARES));
+    seccion("Todas las apps", apps.slice(POPULARES).sort(function(a, b){ return a.nombre.localeCompare(b.nombre, "es"); }));
+  }
+
+  (async function(){
+    var codigos, fichas;
+    try { codigos = await leerApps(); }
+    catch (e) { return aviso("Este buscador se abre desde el bot. Vuelve al chat y toca 🔎 Buscar app con logos."); }
+    if (!codigos.length) return aviso("😕 No hay apps disponibles en este país ahora. Prueba otro país en el bot.");
+    fichas = await leerFichas();
+    var apps = codigos.map(function(c){ return ficha(fichas, c); });
+    document.getElementById("cuenta").textContent = apps.length + " apps";
+
+    var q = document.getElementById("q"), caja = document.getElementById("caja");
+    var espera;
+    q.addEventListener("input", function(){
+      caja.classList.toggle("con-texto", !!q.value);
+      clearTimeout(espera); espera = setTimeout(function(){ pintar(apps, q.value); }, 80);
+    });
+    document.getElementById("limpiar").addEventListener("click", function(){
+      q.value = ""; caja.classList.remove("con-texto"); pintar(apps, ""); q.focus();
+    });
+    pintar(apps, "");
+  })();
+})();
+</script>
+</body>
+</html>
