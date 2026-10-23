@@ -50,7 +50,9 @@
   @media (hover:hover){ .app:hover{box-shadow:0 0 0 2px var(--acento)} }
   .logo{width:48px; height:48px; border-radius:12px; display:grid; place-items:center; font-size:30px;
     background:var(--fondo-2); overflow:hidden; position:relative}
-  .logo img{width:100%; height:100%; object-fit:contain; background:#fff; padding:6px; border-radius:12px}
+  .logo img{position:absolute; inset:0; width:100%; height:100%; box-sizing:border-box; object-fit:contain;
+    background:#fff; padding:6px; border-radius:12px; opacity:0; transition:opacity .2s}
+  .logo img.listo{opacity:1}
   .nombre{font-size:12.5px; font-weight:500; line-height:1.2; max-width:100%; overflow:hidden;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word}
   .vacio{text-align:center; color:var(--tenue); padding:48px 24px}
@@ -130,11 +132,14 @@
     var b = document.createElement("button");
     b.type = "button"; b.className = "app";
     var logo = document.createElement("span"); logo.className = "logo"; logo.textContent = app.emoji;
+    // El logo va dentro de la tarjeta desde el inicio, invisible sobre el emoji: una imagen "lazy" que no está
+    // en la página nunca se descarga. Google devuelve un globo de 16 px cuando no tiene logo: ahí se queda el emoji
     var img = new Image();
     img.alt = ""; img.loading = "lazy"; img.decoding = "async";
+    img.onload = function(){ if (img.naturalWidth >= 32) img.className = "listo"; else img.remove(); };
+    img.onerror = function(){ img.remove(); };
     img.src = "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(app.dominio) + "&sz=128";
-    // Google devuelve un globo de 16 px cuando no tiene logo: en ese caso se queda el emoji
-    img.onload = function(){ if (img.naturalWidth >= 32) { logo.textContent = ""; logo.appendChild(img); } };
+    logo.appendChild(img);
     var nombre = document.createElement("span"); nombre.className = "nombre"; nombre.textContent = app.nombre;
     b.appendChild(logo); b.appendChild(nombre);
     b.addEventListener("click", function(){ elegir(app); });
